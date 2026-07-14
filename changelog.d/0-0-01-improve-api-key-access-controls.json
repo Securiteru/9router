@@ -1,0 +1,34 @@
+{
+  "version": "0.0.01",
+  "title": "Improve API key access controls",
+  "description": "Added deny-by-default API key ACLs, account-aware credential selection, combo permissions, and a responsive access editor.",
+  "audience": "user-facing",
+  "visibility": "public",
+  "release_scope": "prod",
+  "public_description": "Added a visual way to control API key access to providers, accounts, models, and combos.",
+  "internal_description": "Added deny-by-default API key ACLs, account-aware credential selection, combo permissions, and a responsive access editor.",
+  "files_changed": [
+    "src/app/(dashboard)/dashboard/endpoint/EndpointPageClient.js",
+    "src/app/api/keys/[id]/acl/route.js",
+    "src/lib/db/index.js",
+    "src/lib/db/repos/apiKeysRepo.js",
+    "src/lib/db/schema.js",
+    "src/sse/handlers/chat.js",
+    "src/sse/handlers/embeddings.js",
+    "src/sse/handlers/fetch.js",
+    "src/sse/handlers/imageGeneration.js",
+    "src/sse/handlers/search.js",
+    "src/sse/handlers/stt.js",
+    "src/sse/handlers/tts.js",
+    "src/sse/services/auth.js",
+    "src/app/(dashboard)/dashboard/endpoint/keys/[id]/access/ApiKeyAccessPageClient.js",
+    "src/app/(dashboard)/dashboard/endpoint/keys/[id]/access/page.js"
+  ],
+  "timestamp": "2026-07-14T17:38:54.029037Z",
+  "git": {
+    "branch": "feat/visual-api-key-access",
+    "base_commit": "f59d212e3fe3dfcd0bf4e4c0eb6e77f5c857cd40",
+    "deployment_commit": null,
+    "deployment_commit_note": "Final commit SHA is only known after commit creation; correlate by reading this changelog entry from the deployed GitHub Actions headSha."
+  }
+}

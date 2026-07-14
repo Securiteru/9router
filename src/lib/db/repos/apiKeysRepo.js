@@ -10,6 +10,7 @@ function rowToKey(row) {
     name: row.name,
     machineId: row.machineId,
     isActive: row.isActive === 1 || row.isActive === true,
+    defaultPolicy: row.defaultPolicy || "allow",
     createdAt: row.createdAt,
   };
 }
@@ -37,11 +38,12 @@ export async function createApiKey(name, machineId) {
     key: result.key,
     machineId,
     isActive: true,
+    defaultPolicy: "deny",
     createdAt: new Date().toISOString(),
   };
   db.run(
-    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt) VALUES(?, ?, ?, ?, ?, ?)`,
-    [apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt]
+    `INSERT INTO apiKeys(id, key, name, machineId, isActive, defaultPolicy, createdAt) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+    [apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.defaultPolicy, apiKey.createdAt]
   );
   return apiKey;
 }
@@ -54,8 +56,8 @@ export async function updateApiKey(id, data) {
     if (!row) return;
     const merged = { ...rowToKey(row), ...data };
     db.run(
-      `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ? WHERE id = ?`,
-      [merged.key, merged.name, merged.machineId, merged.isActive ? 1 : 0, id]
+      `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?, defaultPolicy = ? WHERE id = ?`,
+      [merged.key, merged.name, merged.machineId, merged.isActive ? 1 : 0, merged.defaultPolicy || "allow", id]
     );
     result = merged;
   });
@@ -142,7 +144,7 @@ export const ACL_SERVICES = ["chat", "tts", "stt", "imageGeneration", "embedding
 /**
  * Evaluate an API key's ACL against a request context.
  * @param {string} apiKeyId - key id
- * @param {{service?: string, provider?: string, model?: string}} ctx
+ * @param {{service?: string, provider?: string, connection?: string, model?: string, combo?: string}} ctx
  * @returns {{allowed: boolean, reason?: string}}
  *
  * Semantics per scope:
@@ -153,8 +155,12 @@ export const ACL_SERVICES = ["chat", "tts", "stt", "imageGeneration", "embedding
  */
 export async function checkKeyAccess(apiKeyId, ctx = {}) {
   if (!apiKeyId) return { allowed: true };
+  const key = await getApiKeyById(apiKeyId);
+  if (!key) return { allowed: false, reason: "API key not found" };
   const rules = await getApiKeyAcl(apiKeyId);
-  if (!rules.length) return { allowed: true };
+  if (!rules.length) return key.defaultPolicy === "deny"
+    ? { allowed: false, reason: "No access has been granted to this API key" }
+    : { allowed: true };
 
   const byScope = new Map();
   for (const r of rules) {
@@ -162,11 +168,14 @@ export async function checkKeyAccess(apiKeyId, ctx = {}) {
     byScope.get(r.scope)[r.mode] = r.values;
   }
 
-  for (const scope of ["service", "provider", "model"]) {
+  for (const scope of ["service", "provider", "connection", "model", "combo"]) {
     const value = ctx[scope];
     if (value === undefined || value === null || value === "") continue;
     const sets = byScope.get(scope);
-    if (!sets) continue;
+    if (!sets) {
+      if (key.defaultPolicy === "deny") return { allowed: false, reason: `No ${scope} access has been granted` };
+      continue;
+    }
     const deny = sets.deny;
     const allow = sets.allow;
     if (Array.isArray(deny) && deny.length && deny.includes(value)) {

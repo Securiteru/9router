@@ -64,17 +64,16 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Enforce API key if enabled in settings
   const settings = await getSettings();
+  const requestedComboModels = modelStr ? await getComboModels(modelStr) : null;
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
       return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
     }
-    const aclInfo = modelStr ? await getModelInfo(modelStr) : null;
-    const authz = await authorizeKey(apiKey, {
-      service: "chat",
-      model: modelStr,
-      provider: aclInfo?.provider,
-    });
+    const aclInfo = requestedComboModels ? null : (modelStr ? await getModelInfo(modelStr) : null);
+    const authz = await authorizeKey(apiKey, requestedComboModels
+      ? { service: "chat", combo: modelStr }
+      : { service: "chat", model: modelStr, provider: aclInfo?.provider });
     if (!authz.ok) {
       log.warn("AUTH", authz.reason);
       return errorResponse(authz.status || 403, authz.reason);
@@ -92,8 +91,15 @@ export async function handleChat(request, clientRawRequest = null) {
   if (bypassResponse) return bypassResponse.response || bypassResponse;
 
   // Check if model is a combo (has multiple models with fallback)
-  const comboModels = await getComboModels(modelStr);
+  const comboModels = requestedComboModels;
   if (comboModels) {
+    // A combo may execute every listed source (including fusion panels), so it
+    // must be fully compatible before any upstream work starts.
+    for (const comboModel of comboModels) {
+      const info = await getModelInfo(comboModel);
+      const memberAuthz = await authorizeKey(apiKey, { service: "chat", model: comboModel, provider: info?.provider });
+      if (!memberAuthz.ok) return errorResponse(memberAuthz.status || 403, `Combo source unavailable: ${memberAuthz.reason}`);
+    }
     // Check for combo-specific strategy first, fallback to global
     const comboStrategies = settings.comboStrategies || {};
     const comboSpecificStrategy = comboStrategies[modelStr]?.fallbackStrategy;
@@ -201,7 +207,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { clientApiKey: apiKey });
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {

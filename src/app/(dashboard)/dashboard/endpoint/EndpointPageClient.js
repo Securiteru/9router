@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import PropTypes from "prop-types";
 import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -14,7 +15,6 @@ import {
 } from "./endpointConstants";
 import { clientPingUrl, clientPingAny } from "./endpointPing";
 import EndpointRow from "./components/EndpointRow";
-import ApiKeyAclModal from "./components/ApiKeyAclModal";
 import StatusAlert from "./components/StatusAlert";
 import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
@@ -78,8 +78,6 @@ export default function APIPageClient({ machineId }) {
   // API key visibility toggle state
   const [visibleKeys, setVisibleKeys] = useState(new Set());
 
-  // API key ACL editor state
-  const [aclKey, setAclKey] = useState(null);
 
   // Client-side local/remote detection (UI hint only, not a security gate)
   const [isRemoteHost, setIsRemoteHost] = useState(false);
@@ -1033,13 +1031,13 @@ export default function APIPageClient({ machineId }) {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setAclKey(key)}
+                  <Link
+                    href={`/dashboard/endpoint/keys/${key.id}/access`}
                     className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                     title="Access rules"
                   >
                     <span className="material-symbols-outlined text-[18px]">shield_lock</span>
-                  </button>
+                  </Link>
                   <Toggle
                     size="sm"
                     checked={key.isActive ?? true}
@@ -1140,14 +1138,6 @@ export default function APIPageClient({ machineId }) {
           </Button>
         </div>
       </Modal>
-
-      {/* API Key ACL Modal */}
-      <ApiKeyAclModal
-        apiKeyId={aclKey?.id}
-        apiKeyName={aclKey?.name}
-        isOpen={!!aclKey}
-        onClose={() => setAclKey(null)}
-      />
 
       {/* Enable Tunnel Modal */}
       <Modal

@@ -1,4 +1,4 @@
-import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools, getApiKeyByKey, checkKeyAccess } from "@/lib/localDb";
+import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools, getApiKeyByKey, getApiKeyAcl, checkKeyAccess } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, getUnavailableUntil, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
@@ -109,7 +109,19 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       };
     }
 
-    const connections = await getProviderConnections({ provider: providerId, isActive: true });
+    let connections = await getProviderConnections({ provider: providerId, isActive: true });
+    // Client-key account ACL is enforced before account selection, so retry and
+    // round-robin can never fall through to an account the caller may not use.
+    if (options?.clientApiKey) {
+      const key = await getApiKeyByKey(options.clientApiKey);
+      const rules = key ? await getApiKeyAcl(key.id) : [];
+      const connectionRules = rules.filter((rule) => rule.scope === "connection");
+      const allow = connectionRules.find((rule) => rule.mode === "allow")?.values;
+      const deny = connectionRules.find((rule) => rule.mode === "deny")?.values || [];
+      if (key?.defaultPolicy === "deny" && !allow) connections = [];
+      else if (Array.isArray(allow)) connections = connections.filter((connection) => allow.includes(connection.id));
+      connections = connections.filter((connection) => !deny.includes(connection.id));
+    }
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {

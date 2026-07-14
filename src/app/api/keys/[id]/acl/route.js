@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getApiKeyById, getApiKeyAcl, setApiKeyAcl, deleteApiKeyAcl, ACL_SERVICES } from "@/lib/localDb";
+import { getApiKeyById, getApiKeyAcl, setApiKeyAcl, deleteApiKeyAcl, updateApiKey, getProviderConnections, getCombos, ACL_SERVICES } from "@/lib/localDb";
 import { withAudit } from "@/lib/audit/withAudit";
 
 export const dynamic = "force-dynamic";
 
-const VALID_SCOPES = new Set(["service", "provider", "model"]);
+const VALID_SCOPES = new Set(["service", "provider", "connection", "model", "combo"]);
 const VALID_MODES = new Set(["allow", "deny"]);
 
 function normalizeRules(input) {
@@ -24,6 +24,16 @@ function normalizeRules(input) {
   return { rules };
 }
 
+async function getCatalog() {
+  const [connections, combos] = await Promise.all([getProviderConnections(), getCombos()]);
+  const safeConnections = connections.map(({ id, provider, authType, name, email, isActive, defaultModel, supportedModels }) => ({
+    id, provider, authType, name: name || email || "Unnamed account", email: email || null,
+    isActive: !!isActive, models: [...new Set([defaultModel, ...(Array.isArray(supportedModels) ? supportedModels : [])].filter(Boolean))],
+  }));
+  const models = [...new Set([...safeConnections.flatMap((c) => c.models), ...combos.flatMap((c) => c.models || [])])].sort();
+  return { connections: safeConnections, combos: combos.map(({ id, name, kind, models: comboModels }) => ({ id, name, kind, models: comboModels || [] })), models };
+}
+
 // GET /api/keys/[id]/acl - List ACL rules for a key
 export async function GET(request, { params }) {
   try {
@@ -31,7 +41,7 @@ export async function GET(request, { params }) {
     const key = await getApiKeyById(id);
     if (!key) return NextResponse.json({ error: "Key not found" }, { status: 404 });
     const rules = await getApiKeyAcl(id);
-    return NextResponse.json({ rules, services: ACL_SERVICES });
+    return NextResponse.json({ rules, defaultPolicy: key.defaultPolicy || "allow", services: ACL_SERVICES, catalog: await getCatalog() });
   } catch (error) {
     console.log("Error fetching key ACL:", error);
     return NextResponse.json({ error: "Failed to fetch ACL" }, { status: 500 });
@@ -48,9 +58,11 @@ async function _PUT(request, { params }) {
     const body = await request.json();
     const { rules, error } = normalizeRules(body.rules);
     if (error) return NextResponse.json({ error }, { status: 400 });
+    const defaultPolicy = body.defaultPolicy === "deny" ? "deny" : "allow";
+    await updateApiKey(id, { defaultPolicy });
 
     const saved = await setApiKeyAcl(id, rules);
-    return NextResponse.json({ rules: saved });
+    return NextResponse.json({ rules: saved, defaultPolicy });
   } catch (error) {
     console.log("Error saving key ACL:", error);
     return NextResponse.json({ error: "Failed to save ACL" }, { status: 500 });
