@@ -153,14 +153,29 @@ export const ACL_SERVICES = ["chat", "tts", "stt", "imageGeneration", "embedding
  *  - A scope with no rules is unrestricted.
  *  - Missing ctx fields are skipped (fail-open on that scope only).
  */
+/**
+ * Evaluate an API key's ACL against a request context using a waterfall.
+ *
+ * `service` is a top-level gate (checked independently when rules exist).
+ * Resource scopes cascade in priority: combo -> provider -> connection -> model.
+ * The FIRST resource scope that has rules AND a value in ctx decides (allow or deny);
+ * scopes with no rules (or no value in ctx) fall through. `defaultPolicy` applies
+ * only when no resource scope matched.
+ *
+ * @param {string} apiKeyId
+ * @param {{service?: string, provider?: string, connection?: string, model?: string, combo?: string}} ctx
+ * @returns {{allowed: boolean, reason?: string}}
+ */
 export async function checkKeyAccess(apiKeyId, ctx = {}) {
   if (!apiKeyId) return { allowed: true };
   const key = await getApiKeyById(apiKeyId);
   if (!key) return { allowed: false, reason: "API key not found" };
   const rules = await getApiKeyAcl(apiKeyId);
-  if (!rules.length) return key.defaultPolicy === "deny"
-    ? { allowed: false, reason: "No access has been granted to this API key" }
-    : { allowed: true };
+  if (!rules.length) {
+    return key.defaultPolicy === "deny"
+      ? { allowed: false, reason: "No access has been granted to this API key" }
+      : { allowed: true };
+  }
 
   const byScope = new Map();
   for (const r of rules) {
@@ -168,22 +183,32 @@ export async function checkKeyAccess(apiKeyId, ctx = {}) {
     byScope.get(r.scope)[r.mode] = r.values;
   }
 
-  for (const scope of ["service", "provider", "connection", "model", "combo"]) {
-    const value = ctx[scope];
-    if (value === undefined || value === null || value === "") continue;
-    const sets = byScope.get(scope);
-    if (!sets) {
-      if (key.defaultPolicy === "deny") return { allowed: false, reason: `No ${scope} access has been granted` };
-      continue;
-    }
-    const deny = sets.deny;
-    const allow = sets.allow;
-    if (Array.isArray(deny) && deny.length && deny.includes(value)) {
-      return { allowed: false, reason: `Denied ${scope} "${value}" by ACL` };
-    }
-    if (Array.isArray(allow) && allow.length && !allow.includes(value)) {
-      return { allowed: false, reason: `${scope} "${value}" not in ACL allow-list` };
+  const isDenied = (sets, value) => Array.isArray(sets?.deny) && sets.deny.length > 0 && sets.deny.includes(value);
+  const hasAllow = (sets) => Array.isArray(sets?.allow) && sets.allow.length > 0;
+
+  // 1. Service gate (orthogonal): when service rules exist, the service must be allowed.
+  if (ctx.service) {
+    const sets = byScope.get("service");
+    if (sets) {
+      if (isDenied(sets, ctx.service)) return { allowed: false, reason: `Denied service "${ctx.service}" by ACL` };
+      if (hasAllow(sets) && !sets.allow.includes(ctx.service)) return { allowed: false, reason: `service "${ctx.service}" not in ACL allow-list` };
     }
   }
-  return { allowed: true };
+
+  // 2. Resource waterfall: combo -> provider -> connection -> model.
+  //    First scope with rules AND a present value decides; the rest fall through.
+  for (const scope of ["combo", "provider", "connection", "model"]) {
+    const sets = byScope.get(scope);
+    if (!sets) continue;
+    const value = ctx[scope];
+    if (value === undefined || value === null || value === "") continue;
+    if (isDenied(sets, value)) return { allowed: false, reason: `Denied ${scope} "${value}" by ACL` };
+    if (hasAllow(sets) && !sets.allow.includes(value)) return { allowed: false, reason: `${scope} "${value}" not in ACL allow-list` };
+    return { allowed: true };
+  }
+
+  // 3. No resource scope matched -> defaultPolicy.
+  return key.defaultPolicy === "deny"
+    ? { allowed: false, reason: "No access has been granted for this resource" }
+    : { allowed: true };
 }
