@@ -1,12 +1,45 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
-import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
+import { formatRetryAfter, checkFallbackError, getUnavailableUntil, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
 let selectionMutex = Promise.resolve();
+
+// No-auth/free providers use a virtual "Public" connection, so there is no DB
+// row where model locks can be persisted. Keep a process-local lock table to
+// avoid hammering upstream free endpoints after quota/risk-control failures.
+const NOAUTH_CONNECTION_ID = "noauth";
+const noAuthModelLocks = new Map();
+const NOAUTH_MIN_COOLDOWN_MS = 60 * 1000;
+const NOAUTH_RISK_COOLDOWN_MS = 5 * 60 * 1000;
+
+function noAuthLockKey(provider, model = null) {
+  return `${resolveProviderId(provider) || provider}:${model || "__all"}`;
+}
+
+function getNoAuthLock(provider, model = null) {
+  const keys = [noAuthLockKey(provider, model), noAuthLockKey(provider, null)];
+  const now = Date.now();
+  let earliest = null;
+  for (const key of keys) {
+    const lock = noAuthModelLocks.get(key);
+    if (!lock) continue;
+    const until = new Date(lock.retryAfter).getTime();
+    if (until <= now) {
+      noAuthModelLocks.delete(key);
+      continue;
+    }
+    if (!earliest || until < new Date(earliest.retryAfter).getTime()) earliest = lock;
+  }
+  return earliest;
+}
+
+function clearNoAuthLock(provider, model = null) {
+  noAuthModelLocks.delete(noAuthLockKey(provider, model));
+}
 
 /**
  * Get provider credentials from localDb
@@ -34,6 +67,20 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 
     // Inject a virtual connection for no-auth free providers (with optional proxy pool from settings)
     if (FREE_PROVIDERS[providerId]?.noAuth) {
+      if (excludeSet.has(NOAUTH_CONNECTION_ID)) return null;
+
+      const lock = getNoAuthLock(providerId, model);
+      if (lock) {
+        log.warn("AUTH", `${providerId} | public ${model || "all"} locked (${formatRetryAfter(lock.retryAfter)}) | lastError=${String(lock.lastError || "").slice(0, 50)}`);
+        return {
+          allRateLimited: true,
+          retryAfter: lock.retryAfter,
+          retryAfterHuman: formatRetryAfter(lock.retryAfter),
+          lastError: lock.lastError || null,
+          lastErrorCode: lock.status || null
+        };
+      }
+
       const settings = await getSettings();
       const override = (settings.providerStrategies || {})[providerId] || {};
       const strategy = override.rotateStrategy || "none";
@@ -45,7 +92,10 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       }
       const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId || "" });
       return {
-        id: "noauth",
+        id: NOAUTH_CONNECTION_ID,
+        connectionId: NOAUTH_CONNECTION_ID,
+        provider: providerId,
+        providerId,
         connectionName: "Public",
         isActive: true,
         accessToken: "public",
@@ -208,7 +258,41 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
  * @returns {{ shouldFallback: boolean, cooldownMs: number }}
  */
 export async function markAccountUnavailable(connectionId, status, errorText, provider = null, model = null, resetsAtMs = null) {
-  if (!connectionId || connectionId === "noauth") return { shouldFallback: false, cooldownMs: 0 };
+  if (!connectionId) return { shouldFallback: false, cooldownMs: 0 };
+
+  if (connectionId === NOAUTH_CONNECTION_ID) {
+    let shouldFallback, cooldownMs, newBackoffLevel;
+    const key = noAuthLockKey(provider, model);
+    const current = noAuthModelLocks.get(key);
+    const backoffLevel = current?.backoffLevel || 0;
+    if (resetsAtMs && resetsAtMs > Date.now()) {
+      shouldFallback = true;
+      cooldownMs = Math.min(resetsAtMs - Date.now(), MAX_RATE_LIMIT_COOLDOWN_MS);
+      newBackoffLevel = 0;
+    } else {
+      ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
+    }
+    if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
+
+    const lowerError = typeof errorText === "string" ? errorText.toLowerCase() : "";
+    if (lowerError.includes("risk_control") || lowerError.includes("non-compliant")) {
+      cooldownMs = Math.max(cooldownMs, NOAUTH_RISK_COOLDOWN_MS);
+    } else {
+      cooldownMs = Math.max(cooldownMs, NOAUTH_MIN_COOLDOWN_MS);
+    }
+
+    const retryAfter = getUnavailableUntil(cooldownMs);
+    const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+    noAuthModelLocks.set(key, {
+      retryAfter,
+      backoffLevel: newBackoffLevel ?? backoffLevel,
+      lastError: reason,
+      status,
+    });
+    log.warn("AUTH", `Public locked ${provider || "noauth"}/${model || "all"} for ${Math.round(cooldownMs / 1000)}s [${status}]`);
+    return { shouldFallback: true, cooldownMs };
+  }
+
   const connections = await getProviderConnections({ provider });
   const conn = connections.find(c => c.id === connectionId);
   const backoffLevel = conn?.backoffLevel || 0;
@@ -257,7 +341,12 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
  * @param {string|null} model - model that succeeded
  */
 export async function clearAccountError(connectionId, currentConnection, model = null) {
-  if (!connectionId || connectionId === "noauth") return;
+  if (!connectionId) return;
+  if (connectionId === NOAUTH_CONNECTION_ID) {
+    const provider = currentConnection?.provider || currentConnection?.providerId;
+    if (provider) clearNoAuthLock(provider, model);
+    return;
+  }
   const conn = currentConnection._connection || currentConnection;
   const now = Date.now();
   const allLockKeys = Object.keys(conn).filter(k => k.startsWith("modelLock_"));
