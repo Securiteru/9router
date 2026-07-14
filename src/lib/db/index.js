@@ -84,7 +84,7 @@ export async function exportDb() {
     providerNodes: db.all(`SELECT * FROM providerNodes`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, type: r.type, name: r.name, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     proxyPools: db.all(`SELECT * FROM proxyPools`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, isActive: r.isActive === 1, testStatus: r.testStatus, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     apiKeys: db.all(`SELECT * FROM apiKeys`).map((r) => ({ id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1, createdAt: r.createdAt })),
-    apiKeyAcl: db.all(`SELECT * FROM apiKeyAcl`).map((r) => ({ id: r.id, apiKeyId: r.apiKeyId, scope: r.scope, mode: r.mode, values: parseJson(r.values, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
+    apiKeyAcl: db.all(`SELECT * FROM apiKeyAcl`).map((r) => ({ id: r.id, apiKeyId: r.apiKeyId, scope: r.scope, mode: r.mode, values: parseJson(r.valuesJson, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
     combos: db.all(`SELECT * FROM combos`).map((r) => ({ id: r.id, name: r.name, kind: r.kind, models: parseJson(r.models, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
     modelAliases: {},
     customModels: [],
@@ -151,7 +151,7 @@ export async function importDb(payload) {
     }
     for (const a of payload.apiKeyAcl || []) {
       db.run(
-        `INSERT OR REPLACE INTO apiKeyAcl(id, apiKeyId, scope, mode, values, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO apiKeyAcl(id, apiKeyId, scope, mode, valuesJson, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?, ?)`,
         [a.id, a.apiKeyId, a.scope, a.mode, stringifyJson(a.values || []), a.createdAt || new Date().toISOString(), a.updatedAt || new Date().toISOString()]
       );
     }
