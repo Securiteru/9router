@@ -1,0 +1,20 @@
+{
+  "version": "0.0.02",
+  "title": "Correct API key policy migration",
+  "description": "Moved defaultPolicy to apiKeys and bumped schema backup version after the initial deployment exposed the incorrect table placement.",
+  "audience": "user-facing",
+  "visibility": "public",
+  "release_scope": "prod",
+  "public_description": "Corrected the API key access-policy migration.",
+  "internal_description": "Moved defaultPolicy to apiKeys and bumped schema backup version after the initial deployment exposed the incorrect table placement.",
+  "files_changed": [
+    "src/lib/db/schema.js"
+  ],
+  "timestamp": "2026-07-14T20:24:53.618244Z",
+  "git": {
+    "branch": "feat/visual-api-key-access",
+    "base_commit": "1602217c88a4c57dcf0e451e943d913e442ad925",
+    "deployment_commit": null,
+    "deployment_commit_note": "Final commit SHA is only known after commit creation; correlate by reading this changelog entry from the deployed GitHub Actions headSha."
+  }
+}
