@@ -96,7 +96,7 @@ function rowToAcl(row) {
     apiKeyId: row.apiKeyId,
     scope: row.scope,
     mode: row.mode,
-    values: parseJson(row.values, []),
+    values: parseJson(row.valuesJson, []),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -122,7 +122,7 @@ export async function setApiKeyAcl(apiKeyId, rules = []) {
       if (!r || !r.scope || !r.mode) continue;
       const values = Array.isArray(r.values) ? r.values : [];
       db.run(
-        `INSERT INTO apiKeyAcl(id, apiKeyId, scope, mode, values, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO apiKeyAcl(id, apiKeyId, scope, mode, valuesJson, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?, ?)`,
         [uuidv4(), apiKeyId, r.scope, r.mode, stringifyJson(values), now, now]
       );
     }

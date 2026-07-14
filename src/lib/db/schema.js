@@ -89,14 +89,16 @@ export const TABLES = {
   // Per-key access control list. A key with no rows here is unrestricted.
   // scope: "service" | "provider" | "model"
   // mode:  "allow" (whitelist) | "deny" (blacklist)
-  // values: JSON array of strings (service ids, provider ids, or model ids)
+  // valuesJson: JSON array of strings (service ids, provider ids, or model ids)
+  // NOTE: column is named valuesJson (not "values") because VALUES is a SQLite
+  // reserved keyword and breaks CREATE TABLE.
   apiKeyAcl: {
     columns: {
       id: "TEXT PRIMARY KEY",
       apiKeyId: "TEXT NOT NULL",
       scope: "TEXT NOT NULL",
       mode: "TEXT NOT NULL",
-      values: "TEXT NOT NULL",
+      valuesJson: "TEXT NOT NULL",
       createdAt: "TEXT NOT NULL",
       updatedAt: "TEXT NOT NULL",
     },
