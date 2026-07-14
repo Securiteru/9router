@@ -1,4 +1,4 @@
-import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
+import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools, getApiKeyByKey, checkKeyAccess } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, getUnavailableUntil, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
@@ -405,4 +405,30 @@ export function extractApiKey(request) {
 export async function isValidApiKey(apiKey) {
   if (!apiKey) return false;
   return await validateApiKey(apiKey);
+}
+
+/**
+ * Authorize an API key against its ACL for a request context.
+ * Combines key validation (exists + active) with per-scope ACL checks.
+ *
+ * @param {string} apiKey - full key string (sk-...)
+ * @param {{service?: string, provider?: string, model?: string}} ctx
+ * @returns {Promise<{ok: boolean, status?: number, reason?: string}>}
+ *
+ * Returns ok=true when:
+ *  - no key is provided (the requireApiKey gate handles missing keys), or
+ *  - the key is valid and the request passes every configured ACL scope.
+ */
+export async function authorizeKey(apiKey, ctx = {}) {
+  if (!apiKey) return { ok: true };
+  const keyRow = await getApiKeyByKey(apiKey);
+  if (!keyRow || !keyRow.isActive) {
+    return { ok: false, status: 401, reason: "Invalid API key" };
+  }
+  const access = await checkKeyAccess(keyRow.id, ctx);
+  if (!access.allowed) {
+    log.warn("AUTH", `ACL deny | key=${keyRow.id?.slice(0, 8)} | ${access.reason || "blocked by ACL"}`);
+    return { ok: false, status: 403, reason: access.reason || "Blocked by API key ACL" };
+  }
+  return { ok: true };
 }

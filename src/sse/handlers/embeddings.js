@@ -3,7 +3,7 @@ import {
   markAccountUnavailable,
   clearAccountError,
   extractApiKey,
-  isValidApiKey,
+  authorizeKey,
 } from "../services/auth.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
@@ -48,10 +48,11 @@ export async function handleEmbeddings(request) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
       return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
     }
-    const valid = await isValidApiKey(apiKey);
-    if (!valid) {
-      log.warn("AUTH", "Invalid API key (requireApiKey=true)");
-      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+    const aclInfo = modelStr ? await getModelInfo(modelStr) : null;
+    const authz = await authorizeKey(apiKey, { service: "embeddings", model: modelStr, provider: aclInfo?.provider });
+    if (!authz.ok) {
+      log.warn("AUTH", authz.reason);
+      return errorResponse(authz.status || 403, authz.reason);
     }
   }
 
