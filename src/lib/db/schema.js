@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -169,6 +169,29 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_rd_provider ON requestDetails(provider)",
       "CREATE INDEX IF NOT EXISTS idx_rd_model ON requestDetails(model)",
       "CREATE INDEX IF NOT EXISTS idx_rd_conn ON requestDetails(connectionId)",
+    ],
+  },
+  // Audit log of dashboard/frontend mutations. One row per mutating API call.
+  auditLog: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      timestamp: "TEXT NOT NULL",
+      method: "TEXT",
+      route: "TEXT",
+      action: "TEXT",
+      entityType: "TEXT",
+      entityId: "TEXT",
+      ip: "TEXT",
+      actor: "TEXT",
+      status: "INTEGER",
+      diff: "TEXT",
+      meta: "TEXT",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_audit_ts ON auditLog(timestamp DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_audit_ip ON auditLog(ip)",
+      "CREATE INDEX IF NOT EXISTS idx_audit_entity ON auditLog(entityType, entityId)",
+      "CREATE INDEX IF NOT EXISTS idx_audit_action ON auditLog(action)",
     ],
   },
 };

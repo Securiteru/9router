@@ -9,6 +9,7 @@ import {
 import { APIKEY_PROVIDERS } from "@/shared/constants/config";
 import { AI_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider } from "@/shared/constants/providers";
 import { normalizeProviderId, normalizeProviderSpecificData } from "@/lib/providerNormalization";
+import { withAudit } from "@/lib/audit/withAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,7 @@ export async function GET() {
 }
 
 // POST /api/providers - Create new connection (API Key only, OAuth via separate flow)
-export async function POST(request) {
+async function _POST(request) {
   try {
     const body = await request.json();
     const provider = normalizeProviderId(body.provider);
@@ -195,3 +196,9 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to create provider" }, { status: 500 });
   }
 }
+
+export const POST = withAudit("provider", _POST, {
+  action: "create",
+  getAfter: async (req, params, body) => body?.connection || null,
+  getId: async (params, body) => body?.connection?.id || null,
+});

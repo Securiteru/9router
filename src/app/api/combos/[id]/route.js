@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getComboById, updateCombo, deleteCombo, getComboByName } from "@/lib/localDb";
 import { resetComboRotation } from "open-sse/services/combo.js";
+import { withAudit } from "@/lib/audit/withAudit";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -23,7 +24,7 @@ export async function GET(request, { params }) {
 }
 
 // PUT /api/combos/[id] - Update combo
-export async function PUT(request, { params }) {
+async function _PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
@@ -61,7 +62,7 @@ export async function PUT(request, { params }) {
 }
 
 // DELETE /api/combos/[id] - Delete combo
-export async function DELETE(request, { params }) {
+async function _DELETE(request, { params }) {
   try {
     const { id } = await params;
     const prev = await getComboById(id);
@@ -79,3 +80,13 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ error: "Failed to delete combo" }, { status: 500 });
   }
 }
+
+export const PUT = withAudit("combo", _PUT, {
+  getBefore: async (req, params) => getComboById(params.id),
+  getAfter: async (req, params) => getComboById(params.id),
+});
+
+export const DELETE = withAudit("combo", _DELETE, {
+  action: "delete",
+  getBefore: async (req, params) => getComboById(params.id),
+});

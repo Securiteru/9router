@@ -5,6 +5,7 @@ import {
   updateProviderConnection,
   deleteProviderConnection,
 } from "@/models";
+import { withAudit } from "@/lib/audit/withAudit";
 
 function normalizeProxyConfig(body = {}) {
   const hasAnyProxyField =
@@ -84,7 +85,7 @@ export async function GET(request, { params }) {
 }
 
 // PUT /api/providers/[id] - Update connection
-export async function PUT(request, { params }) {
+async function _PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
@@ -172,7 +173,7 @@ export async function PUT(request, { params }) {
 }
 
 // DELETE /api/providers/[id] - Delete connection
-export async function DELETE(request, { params }) {
+async function _DELETE(request, { params }) {
   try {
     const { id } = await params;
 
@@ -187,3 +188,13 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ error: "Failed to delete connection" }, { status: 500 });
   }
 }
+
+export const PUT = withAudit("provider", _PUT, {
+  getBefore: async (req, params) => getProviderConnectionById(params.id),
+  getAfter: async (req, params) => getProviderConnectionById(params.id),
+});
+
+export const DELETE = withAudit("provider", _DELETE, {
+  action: "delete",
+  getBefore: async (req, params) => getProviderConnectionById(params.id),
+});

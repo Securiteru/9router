@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteApiKey, getApiKeyById, updateApiKey } from "@/lib/localDb";
+import { withAudit } from "@/lib/audit/withAudit";
 
 // GET /api/keys/[id] - Get single key
 export async function GET(request, { params }) {
@@ -17,7 +18,7 @@ export async function GET(request, { params }) {
 }
 
 // PUT /api/keys/[id] - Update key
-export async function PUT(request, { params }) {
+async function _PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
@@ -41,7 +42,7 @@ export async function PUT(request, { params }) {
 }
 
 // DELETE /api/keys/[id] - Delete API key
-export async function DELETE(request, { params }) {
+async function _DELETE(request, { params }) {
   try {
     const { id } = await params;
 
@@ -56,3 +57,13 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ error: "Failed to delete key" }, { status: 500 });
   }
 }
+
+export const PUT = withAudit("apiKey", _PUT, {
+  getBefore: async (req, params) => getApiKeyById(params.id),
+  getAfter: async (req, params) => getApiKeyById(params.id),
+});
+
+export const DELETE = withAudit("apiKey", _DELETE, {
+  action: "delete",
+  getBefore: async (req, params) => getApiKeyById(params.id),
+});

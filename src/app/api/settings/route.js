@@ -4,6 +4,7 @@ import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { resetComboRotation } from "open-sse/services/combo.js";
 import { runQuotaAutoPingTick } from "@/shared/services/quotaAutoPing";
 import bcrypt from "bcryptjs";
+import { withAudit } from "@/lib/audit/withAudit";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -36,7 +37,7 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request) {
+async function _PATCH(request) {
   try {
     const body = await request.json();
 
@@ -115,3 +116,10 @@ export async function PATCH(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const PATCH = withAudit("settings", _PATCH, {
+  action: "update",
+  getBefore: async () => getSettings(),
+  getAfter: async () => getSettings(),
+  getId: async () => "settings",
+});

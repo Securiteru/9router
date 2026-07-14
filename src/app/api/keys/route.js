@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiKeys, createApiKey } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
+import { withAudit } from "@/lib/audit/withAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export async function GET() {
 }
 
 // POST /api/keys - Create new API key
-export async function POST(request) {
+async function _POST(request) {
   try {
     const body = await request.json();
     const { name } = body;
@@ -40,3 +41,9 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to create key" }, { status: 500 });
   }
 }
+
+export const POST = withAudit("apiKey", _POST, {
+  action: "create",
+  getAfter: async (req, params, body) => body ? { id: body.id, name: body.name, machineId: body.machineId } : null,
+  getId: async (params, body) => body?.id || null,
+});
