@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCombos, createCombo, getComboByName } from "@/lib/localDb";
+import { withAudit } from "@/lib/audit/withAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export async function GET() {
 }
 
 // POST /api/combos - Create new combo
-export async function POST(request) {
+async function _POST(request) {
   try {
     const body = await request.json();
     const { name, models, kind } = body;
@@ -46,3 +47,9 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to create combo" }, { status: 500 });
   }
 }
+
+export const POST = withAudit("combo", _POST, {
+  action: "create",
+  getAfter: async (req, params, body) => body || null,
+  getId: async (params, body) => body?.id || null,
+});

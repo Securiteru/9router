@@ -68,6 +68,11 @@ export {
   saveRequestDetail, getRequestDetails, getRequestDetailById, getDistinctProviders,
 } from "./repos/requestDetailsRepo.js";
 
+// Audit log (dashboard mutations)
+export {
+  addAuditLog, getAuditLogs, countAuditLogs, getDistinctAuditIps,
+} from "./repos/auditLogRepo.js";
+
 // Export/import full DB
 export async function exportDb() {
   const db = await getAdapter();

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getApiKeyById, getApiKeyAcl, setApiKeyAcl, deleteApiKeyAcl, ACL_SERVICES } from "@/lib/localDb";
+import { withAudit } from "@/lib/audit/withAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export async function GET(request, { params }) {
 }
 
 // PUT /api/keys/[id]/acl - Replace the full ACL rule set for a key
-export async function PUT(request, { params }) {
+async function _PUT(request, { params }) {
   try {
     const { id } = await params;
     const key = await getApiKeyById(id);
@@ -57,7 +58,7 @@ export async function PUT(request, { params }) {
 }
 
 // DELETE /api/keys/[id]/acl - Clear all ACL rules (key becomes unrestricted)
-export async function DELETE(request, { params }) {
+async function _DELETE(request, { params }) {
   try {
     const { id } = await params;
     const key = await getApiKeyById(id);
@@ -69,3 +70,15 @@ export async function DELETE(request, { params }) {
     return NextResponse.json({ error: "Failed to clear ACL" }, { status: 500 });
   }
 }
+
+export const PUT = withAudit("apiKeyAcl", _PUT, {
+  getBefore: async (req, params) => getApiKeyAcl(params.id),
+  getAfter: async (req, params) => getApiKeyAcl(params.id),
+  getId: async (params) => params.id,
+});
+
+export const DELETE = withAudit("apiKeyAcl", _DELETE, {
+  action: "delete",
+  getBefore: async (req, params) => getApiKeyAcl(params.id),
+  getId: async (params) => params.id,
+});
